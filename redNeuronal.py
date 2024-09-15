@@ -11,29 +11,29 @@ class Neurona:
     def __init__(self, structure, charge_data = 0, type = 1):
         self.z = 0
         self.a = 0
-        self.pesos = np.array(charge_data[0]) if charge_data else np.random.rand(structure) 
+        self.pesos = np.array(charge_data[0]) if charge_data else np.random.rand(structure)
         self.sesgo = charge_data[1] if charge_data else random.random()
         #print(self.sesgo, structure)
         self.inputs = 0
-        self.actType = type
 
-    def act(self):
-        if self.actType:
-            return self.z if self.z > 0 else 0
-        else:
-            return 1 / (1 + np.e ** -self.z)
 
-    def deriAct(self):
-        if self.actType:
-            return 1 if self.z > 0 else 0
-        else:
-            return (np.e** -self.z)/(1+ np.e** -self.z)**2
-        
+    def relu(self, z):
+        return z if z > 0 else 0
+    
+    def relu_deri(self, z):
+        return 1 if z > 0 else 0
+    
+    def sigm(self, z):
+        return 1 / (1 + np.e ** - z)
+    
+    def sigm_deri(self, z):
+        return self.sigm(z) * (1 - self.sigm(z))
+    
     def give_value(self, inputs):
         #print(inputs, self.pesos)
         self.inputs = inputs
         self.z = self.inputs @ self.pesos + self.sesgo 
-        self.a = self.act()
+        self.a = self.relu(self.z)
         #print(self.pesos, self.sesgo, self.a)
         return self.a
 
@@ -43,10 +43,11 @@ class Red:
         self.output = 0
         self.red = []
         self.act_ant = []
-        self.coste = [lambda pred, solu: (solu - pred)**2, lambda movs, win: movs**2 if win else 0]
-        self.deriCoste = [lambda pred, solu: pred - solu, lambda movs, win: 2*movs if win else 0]
+        self.mse = lambda pred, solu: (pred - solu)**2/2
+        self.mse_deri =  lambda pred, solu: pred - solu
+        self.nose = [lambda movs, win: movs**2 if win else 0, lambda movs, win: 2*movs if win else 0]
 
-        self.correcto = lambda a: a+155.15
+        self.correcto = []
         self.red_sigmas = []
         self.fileName = confName
 
@@ -65,7 +66,7 @@ class Red:
                 for rows in range(columns):
                     self.red[l].append(Neurona(structure[l], type=1))
 
-
+    
 
     def propagar(self, inputs):
         self.act_ant.clear()
@@ -83,47 +84,61 @@ class Red:
 
     def entrenar(self, inputs: np, solus, ciclos: int = 1000, ln: float = 0.05, parametrosDC = None, dcoste = 0):
         #///////
+        
+        inverse_red = self.red[::-1]
+        print(inverse_red)
         for _ in range(ciclos):
             for parametro in range(len(inputs)):
                 self.propagar(inputs[parametro])
-                for l, columns in enumerate(self.red[::-1]):
-                    sigmas = []
+                for l, columns in enumerate(inverse_red):
+
+                    sigmas = np.zeros(len(inverse_red[l][0].pesos))
+                    #print()
                     if l == 0:
-                        for neu in columns:
+                        self.red_sigmas = np.zeros(len(inverse_red[l][0].pesos))
+
+                        for index, neu in enumerate(columns):
                             #sigma = self.deriCoste(neu.a, self.correcto(inputs)) * neu.deriAct() * ln
                             #print(self.deriCoste,dcoste, parametrosDC, 89789070897)
-                            sigma = self.deriCoste[dcoste](neu.a , solus[parametro]) * neu.deriAct()
+                            sigma = self.mse_deri(neu.a, solus[parametro]) * neu.relu_deri(neu.z)
                             neu.pesos = neu.pesos - (sigma * neu.inputs) * ln
                             #print(self.deriCoste(neu.a, self.correcto(inputs)), neu.deriAct())
                             neu.sesgo = neu.sesgo - sigma * ln
-                            #print(sigma)
-                            sigmas.append(sigma)
+                            #print(sigma[0], neu.pesos, self.red_sigmas)
+                            
+                            self.red_sigmas += (sigma[0] * neu.pesos)
+
                             #print(neu.pesos, neu.sesgo, neu.a)
+
+                        
                     else:
-                            sigma = sum(self.red_sigmas) * neu.deriAct() 
+                        for index, neu in enumerate(columns):
+                            #sigma = self.deriCoste(neu.a, self.correcto(inputs)) * neu.deriAct() * ln
+                            #print(self.deriCoste,dcoste, parametrosDC, 89789070897)
+                            #print(self.deriCoste(neu.a, self.correcto(inputs)), neu.deriAct())
+                            #print(sigma)
+
+                            #print(neu.pesos, neu.sesgo, neu.a)
+                            #print(self.red_sigmas, index, len(inverse_red[l]))
+                            sigma = self.red_sigmas[index] * neu.relu_deri(neu.z)
                             neu.pesos = neu.pesos - (sigma * neu.inputs) * ln
                             neu.sesgo = neu.sesgo - sigma * ln
-                            sigmas.append(sigma)
+                            sigmas += (sigma * neu.pesos)
 
-                    self.red_sigmas.append(np.mean(sigmas))
-                self.red_sigmas.clear()
+                    self.red_sigmas = sigmas.copy()
 
-        #self.save_datos()
+
+        self.save_datos()
         #print(self.red[0][0].a, self.act_ant)
         #print("OUTPUT" , self.red[-1][0].a, self.correcto(inputs))
         
 
     def save_datos(self):
-        data = []
-        for l, c in enumerate(self.red):
-            data.append([])
-            for f in c:
-                #print(f.sesgo)
-                data[l].append([f.pesos.tolist(), f.sesgo])
         #print(data)
-
         with open(self.fileName, "wb") as conf:
-            pickle.dump(self.red, conf)
+            data = self.red
+            pickle.dump(data, conf)
+            
             #conf.write(json.dumps(data))
 
 
@@ -149,19 +164,19 @@ if __name__ == "__main__":
     print(mi_red.red[-1][0].a)
    """
     #x, y = lineReg()
-    mi_red = Red(structure = [1, 4, 4, 2], confName="data")
-    mi_red.entrenar(inputs=np.array([[20],[40], [80]]), solus=np.array([[40],[60],[20]]), ciclos=100, ln=0.00001)
+    mi_red = Red(structure = [1, 2, 2, 1], confName="data")
+    #mi_red.entrenar(inputs=np.array([[20],[40], [80]]), solus=np.array([[40],[80],[160]]), ciclos=1000, ln=0.001)
     #print(mi_red.red[-1][0].pesos)
     #print(mi_red.red[-1][0].sesgo)
-    mi_red.propagar([1])
+    mi_red.propagar([20])
 
     print(mi_red.red[-1][0].a, "jjjjj")
-    mi_red.propagar([2])
+    mi_red.propagar([40])
+    print(mi_red.red[-1][0].a, "jjjjj")
+    
+    mi_red.propagar([80])
+    print(mi_red.red[-1][0].a, "jjjjj")
 
-    print(mi_red.red[-1][0].a)
-    mi_red.propagar([3])
-
-    print(mi_red.red[-1][0].a)
 """    mi_red.propagar(np.array([0]))
     p1= mi_red.red[-1][0].a
     mi_red.propagar(np.array([100]))
